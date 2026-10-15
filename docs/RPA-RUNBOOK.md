@@ -10,6 +10,16 @@
 6. 再次核对本人账号、公开可见、关闭定时/商业推广，记录封面与设置截图。`rpa/Submit-BilibiliOne.ps1` 核对源素材、选中标签与当前表单，持久化文件声明和 SQLite `submitting` 后只点击一次。
 7. 出现“稿件投递成功”后到稿件管理读取同一标题、BVID、审核状态；用公开页面确认可播放。发布成功、审核中和提交结果未知分别记录，不能仅凭按钮点击认定发布。
 
+## 抖音 RPA 取材与新平台编辑
+
+完整路径见 [平台执行与恢复](../skill/references/platform-flow.md)。原生操作可见 Chrome DevTools Network / Media，核对正常播放资源的精确作品 ID，在新标签通过浏览器另存视频，再从本人作品卡另存原封面。不使用调试协议、Console、Cookie 或私有接口，不以提供原片目录为前提。
+
+`tools/rpa_source.py bind` 绑定本人主页、Network 和媒体页三份快照；`rpa/Save-Media.ps1` 保存文件前按作品 ID 持久化声明；`tools/verify_media.py` 完整解码；`tools/rpa_source.py finish` 以实际哈希入库。需要兼容副本时 `tools/prepare_upload_video.py` 保留源、复制 AAC 音轨并核对一致性。下载地址含临时签名，只留在忽略目录，不打印或提交。
+
+TikTok / Instagram 用 `rpa/Choose-SyncAsset.ps1` 绑定当前账号、源哈希和上传声明。草稿和未保存编辑现场记录在本机 `data/platform-preflight.json`，恢复时主入口给出 `reconcile_existing_draft`。本轮从同一稿件继续，`rpa/Submit-SyncOne.ps1 -Package <独立发布包>` 校验现场后先写文件声明与 SQLite claim，再仅点击一次 Post/Share。两个新平台均已发表并核对同一作品链接与实际演奏播放，随后暂停。不得因台账尚无 published 就重传。
+
+`rpa/Inspect-Public.ps1` 可在没有现存无痕会话时打开本任务独立无痕窗口，读取已知官方作品链接并保存证据，不改原有浏览器绑定。若已有无痕会话，不能假定新窗口未登录，保留用户现场。`-Action Close` 仅关闭本任务创建且只有一个标签页的窗口。Instagram 的可关闭注册提示可用 `-Action DismissPrompt`；不尝试绕过登录限制。页面可访问、真实播放与后台投稿分别记录。
+
 ## 已发布稿件改封面
 
 从稿件管理对应行进入编辑，地址栏与 UIA 文档都应包含 `type=edit&bvid=<既有编号>`。更新发布包的封面路径及哈希，上传时使用 `Choose-BilibiliAsset.ps1 -Purpose Cover -CoverRevision`；它为不同图片哈希建立独立上传声明，保留原发布声明。

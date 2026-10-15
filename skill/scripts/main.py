@@ -124,13 +124,14 @@ def selection(root, platforms, note_id=None):
     source_bound = bool(source_bound and not source_bound.startswith('SET_'))
     result = {'targets': [], 'needs_account_binding': missing_accounts,
               'source_platform': source_platform, 'source_read_only': True,
-              'needs_source_binding': not source_bound}
+              'needs_source_binding': not source_bound, 'discovery_required': not bool(note_id)}
     if note_id:
         source = next((s for s in sources if s['note_id'] == note_id), None)
         if not source:
             raise ValueError('本地尚无这条源内容；先通过本人主页采集，并使用带平台前缀的源键。')
         result['source'] = source
         result['source_platform'] = source.get('source_platform', 'xiaohongshu')
+        checkpoints = read_json(root/'data/platform-preflight.json', {}).get('platforms', {})
         for platform in platforms:
             account = config.get('targets', {}).get(platform, {}).get('account_id', '')
             matches = [d for d in deliveries if d['platform'] == platform and d['account_id'] == account and
@@ -145,16 +146,23 @@ def selection(root, platforms, note_id=None):
                 action = 'reconcile_existing_submission'
             elif row and row['status'] != 'ready':
                 action = 'review_delivery'
+            checkpoint = checkpoints.get(platform, {})
+            same_editor = (checkpoint.get('source_key') == note_id and checkpoint.get('account_id') == account
+                           and checkpoint.get('source_sha256') == source.get('video_sha256')
+                           and checkpoint.get('status') in ('draft_saved', 'editor_ready_unsaved'))
+            if action == 'prepare' and same_editor:
+                action = 'reconcile_existing_draft'
             result['targets'].append({'platform': platform, 'account_id': account, 'action': action,
                                       'delivery_note_id': row['note_id'] if row else note_id,
                                       'status': row['status'] if row else 'not_prepared',
-                                      'target_url': row['target_url'] if row else None})
+                                      'target_url': row['target_url'] if row else None,
+                                      'editor_checkpoint': checkpoint if same_editor else None})
     else:
         result['source'] = None
         # Loaded profile order can contain pinned old notes. Never call the first saved card "latest".
         result['discovery_required'] = True
     actions = {d['action'] for d in result['targets']}
-    if 'reconcile_existing_submission' in actions or 'review_delivery' in actions:
+    if actions & {'reconcile_existing_submission', 'review_delivery', 'reconcile_existing_draft'}:
         stage = 'reconcile'
     elif not source_bound and not note_id:
         stage = 'bind_source'
@@ -417,7 +425,7 @@ def main(argv=None):
                 print(result['message'])
             else:
                 labels = {'discover':'现场读取本人源主页，确认最新视频（排除置顶旧视频）', 'bind_source':'核对本人抖音账号并绑定只读内容源', 'prepare':'准备素材、居中封面和分平台发布包',
-                          'reconcile':'核对既有提交结果，禁止重复投稿', 'bind_accounts':'核对并补齐目标账号绑定', 'complete':'所选内容已完成，跳过重复发布'}
+                          'reconcile':'核对既有草稿、编辑现场或提交结果，禁止重复上传和投稿', 'bind_accounts':'核对并补齐目标账号绑定', 'complete':'所选内容已完成，跳过重复发布'}
                 print('下一步：' + labels[result['next_step']])
                 print('网页操作由调用 skill/SKILL.md 的 Codex 继续执行；启动程序不独立后台发文。')
             print('Skill 入口：' + str(root/'skill/SKILL.md'))

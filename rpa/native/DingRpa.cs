@@ -129,7 +129,7 @@ public static class DingRpa {
     static void AssertTextInputTarget(IntPtr hwnd) {
         if(hwnd==IntPtr.Zero || GetForegroundWindow()!=hwnd) throw new InvalidOperationException("Text target window lost focus");
         foreach(int key in new int[]{0x1b,0x10,0x11,0x12,0x5b,0x5c})
-            if((GetAsyncKeyState(key)&0x8000)!=0) throw new InvalidOperationException("User key is held; stopping text input");
+            if((GetAsyncKeyState(key)&0x8000)!=0) throw new InvalidOperationException("User key is held; stopping text input (key="+key+")");
     }
     // The caller must first verify the focused editor and its existing value through UIA.
     public static void PressEnter(IntPtr hwnd) {
@@ -185,7 +185,13 @@ public static class DingRpa {
         if(GetForegroundWindow()!=hwnd) throw new InvalidOperationException("Target window lost focus");
         if((GetAsyncKeyState(0x1b)&0x8000)!=0) throw new InvalidOperationException("User pressed Escape");
         var point=new Point{X=x,Y=y}; var hit=WindowFromPoint(point);
-        if(hit!=hwnd && GetAncestor(hit,2)!=hwnd) throw new InvalidOperationException("Click point is covered by another window");
+        if(hit!=hwnd && GetAncestor(hit,2)!=hwnd) {
+            uint ownerPid, popupPid;
+            GetWindowThreadProcessId(hwnd,out ownerPid);
+            GetWindowThreadProcessId(GetAncestor(hit,2),out popupPid);
+            if(GetAncestor(hit,3)!=hwnd || ownerPid!=popupPid)
+                throw new InvalidOperationException("Click point is covered by another window");
+        }
         if(!SetCursorPos(x,y)) throw new InvalidOperationException("Could not move pointer");
         var down=new Input(); down.Type=0; down.Data.Mouse.Flags=right?8u:2u;
         var up=new Input(); up.Type=0; up.Data.Mouse.Flags=right?16u:4u;

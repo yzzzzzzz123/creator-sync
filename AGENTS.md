@@ -2,6 +2,7 @@
 
 - 本项目以本人已发布的抖音内容为主源，同步到小红书、Bilibili、YouTube、TikTok 和 Instagram。抖音由本人运营，只读取本人已发布作品，不代发、编辑、删除或回评论。素材、账号绑定、发布记录保存在本机忽略目录，不提交认证资料。
 - 使用 Windows 原生 UI Automation / SendInput RPA；不使用 CDP、Playwright、网页 JS 注入、私有接口或导出 Cookie。离线解析用户通过浏览器另存的页面可以使用。
+- 抖音视频、标题、封面默认继续通过 RPA 获取，不把提供原片目录设为前置条件。允许原生操作 Chrome 可见的 DevTools Network / Media 界面并另存页面正常播放资源；禁止 Console 执行、协议接管、HAR/请求头或认证信息导出。保存后须完整解码并核对作品 ID。
 - PowerShell 5.1 脚本保存为 UTF-8 BOM。后台 shell 使用 tty:true，子进程 CREATE_NO_WINDOW；交互浏览器保留。
 - 发布前核对窗口 PID/启动时间、官网文档、账号、标题、素材哈希、封面、标签、分区和已有稿件。单次提交先持久化 intent；结果未知时核验原稿，禁止重放提交。
 - 国内目标沿用抖音中文标题语义；B站和小红书封面参考本人小红书风格：白色手写曲名、浅蓝下划线，只保留曲名，不加“钢琴演奏”等副标题。YouTube 保留现有英文设计风格、忠实英文标题及相关标签；TikTok、Instagram 默认英文适配，不用无关热词。

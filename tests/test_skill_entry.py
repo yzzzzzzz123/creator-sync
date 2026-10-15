@@ -52,6 +52,22 @@ class EntryTest(unittest.TestCase):
         self.assertEqual(result['next_step'],'reconcile')
         self.assertEqual(self.db.get('n','bilibili','bili-owner'),before)
 
+    def test_saved_draft_is_reconciled_only_for_same_source_account_and_hash(self):
+        checkpoint = {'source_key':'n', 'account_id':'bili-owner', 'source_sha256':sha256(self.video),
+                      'status':'draft_saved', 'published_test':False}
+        path = self.root/'data/platform-preflight.json'
+        entry.write_json(path, {'platforms':{'bilibili':checkpoint}})
+        plan = entry.selection(self.root,LEGACY_TARGETS,'n')
+        self.assertEqual(plan['next_step'],'reconcile')
+        self.assertFalse(plan['discovery_required'])
+        self.assertEqual(plan['targets'][0]['action'],'reconcile_existing_draft')
+        for changed in ({'source_key':'other'}, {'account_id':'other'}, {'source_sha256':'other'}):
+            entry.write_json(path, {'platforms':{'bilibili':dict(checkpoint,**changed)}})
+            self.assertEqual(entry.selection(self.root,LEGACY_TARGETS,'n')['targets'][0]['action'],'prepare')
+        entry.write_json(path, {'platforms':{'bilibili':checkpoint}})
+        self.published('bilibili','bili-owner')
+        self.assertEqual(entry.selection(self.root,LEGACY_TARGETS,'n')['targets'][0]['action'],'skip_published')
+
     def test_latest_means_live_discovery_not_first_pinned_card(self):
         result=entry.selection(self.root,LEGACY_TARGETS)
         self.assertEqual(result['next_step'],'discover')

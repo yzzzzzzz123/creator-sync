@@ -1,4 +1,4 @@
-﻿param([ValidateSet('Inspect','Navigate','SelectTab','ChromeClick','Click','RemoveTag','Type','Hover','Context','Keys','Scroll')][string]$Action='Inspect',[string]$Stage='inspect',[string]$Name,[string]$Type,[string]$Class,[string]$Id,[string]$Text,[string]$Url,[string]$Keys,[int]$Occurrence=-1,[int]$Notches=-3,[long]$WindowHandle=0)
+﻿param([ValidateSet('Inspect','Navigate','SelectTab','ChromeClick','Click','RemoveTag','Type','Hover','Context','Keys','Scroll')][string]$Action='Inspect',[string]$Stage='inspect',[string]$Name,[string]$Type,[string]$Class,[string]$Id,[string]$Within,[string]$Text,[string]$Url,[string]$Keys,[int]$Occurrence=-1,[int]$Notches=-3,[long]$WindowHandle=0,[switch]$PhysicalClick)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 if(Test-Path -LiteralPath "$projectRoot\data\STOP"){throw 'User STOP file exists'}
@@ -58,6 +58,12 @@ $uri=[Uri]$current
 $canonicalHost=$uri.Host
 if($canonicalHost -in @('bilibili.com','youtube.com','xiaohongshu.com','douyin.com','tiktok.com','instagram.com')){$canonicalHost='www.'+$canonicalHost}
 $allowed=@('www.douyin.com','douyin.com','creator.douyin.com','www.xiaohongshu.com','xiaohongshu.com','creator.xiaohongshu.com','www.youtube.com','youtube.com','studio.youtube.com','accounts.google.com','www.bilibili.com','bilibili.com','member.bilibili.com','space.bilibili.com','passport.bilibili.com','passport.bilibili.cn','www.tiktok.com','tiktok.com','www.instagram.com','instagram.com')
+$mediaManifest=Join-Path $projectRoot 'data\douyin\active-media.json'
+if(Test-Path -LiteralPath $mediaManifest){
+    $media=Get-Content -LiteralPath $mediaManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $mediaUri=[Uri]$media.MediaUrl
+    if($media.SourceId -match '^\d{10,30}$' -and $mediaUri.Scheme -eq 'https' -and $mediaUri.Host -match '(^|\.)douyinvod\.com$|^v\d+-dy-[a-z0-9-]+\.zjcdn\.com$' -and $mediaUri.Query -match ('(^|[?&])__vid='+[regex]::Escape([string]$media.SourceId)+'(&|$)') -and $uri.AbsoluteUri -ceq $mediaUri.AbsoluteUri){$allowed+=$mediaUri.Host}
+}
 if($uri.Host -notin $allowed -and -not ($Action -in @('Navigate','Inspect','SelectTab') -and $current -in @('about:blank','chrome://newtab/'))){throw ('Unexpected host '+$uri.Host)}
 if($canonicalHost -in @('www.douyin.com','creator.douyin.com')){
     if($Action -eq 'Type' -and $Name -notin @('搜索作品','搜索你发布的作品','搜索你感兴趣的内容')){throw 'Douyin is a read-only content source; only search input is allowed'}
@@ -87,7 +93,7 @@ if($Action -eq 'Navigate'){
     if((Value $address[0]) -cne $Url){throw 'Address readback mismatch'}
     [DingRpa]::PressEnter($handle)
  }elseif($Action -eq 'ChromeClick'){
-    if($Name -notmatch '^(扩展程序|Proxy SwitchyOmega \(V3\)(\r?\n.*)?|有 [0-9]+ 项下载正在进行|下载)$'){throw 'Chrome control not allowed'}
+    if($Name -notmatch '^(Chrome|扩展程序|Proxy SwitchyOmega \(V3\)(\r?\n.*)?|有 [0-9]+ 项下载正在进行|下载)$'){throw 'Chrome control not allowed'}
     $targets=@($all | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.Name -ceq $Name -and (Visible $_)})
     if($targets.Count -ne 1){throw 'Chrome control ambiguous'}
     Click $targets[0]
@@ -114,13 +120,19 @@ if($Action -eq 'Navigate'){
     Save-TargetImage $handle ($Stage+'.png')
     $items | Where-Object {-not $_.Offscreen -and ($_.Name -or $_.Value)} | Select-Object -Last 130 Index,Type,Name,Id,Class,Value,Enabled | ConvertTo-Json -Depth 4 -Compress
 }elseif($Action -eq 'Keys'){
-    if($Keys -notin @('^t','^+n','^r','^s','{ESC}','{TAB}','{ENTER}','{PGDN}','{PGUP}','^a','{DELETE}')){throw 'Unapproved key sequence'}
+    if($Keys -notin @('^t','^+n','^r','^s','{F12}','{ESC}','{TAB}','{ENTER}','{PGDN}','{PGUP}','^a','{DELETE}')){throw 'Unapproved key sequence'}
     [System.Windows.Forms.SendKeys]::SendWait($Keys)
 }else{
     if($uri.Host -notin $allowed){throw 'Interaction host not allowed'}
     $docs=@($all | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Document -and (Visible $_) -and (Value $_) -match '^https://' -and ([Uri](Value $_)).Host -in @($uri.Host,$canonicalHost)})
     if($docs.Count -ne 1){throw 'Active website document ambiguous'}
-    $candidates=@((Nodes $docs[0]) | Where-Object {
+    $searchRoot=$docs[0]
+    if($Within){
+        $scopes=@((Nodes $searchRoot) | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and $_.Current.Name -ceq $Within -and -not $_.Current.IsOffscreen})
+        if($scopes.Count -ne 1){throw 'Named website dialog is ambiguous'}
+        $searchRoot=$scopes[0]
+    }
+    $candidates=@((Nodes $searchRoot) | Where-Object {
         $c=$_.Current
         $c.IsEnabled -and $c.BoundingRectangle.Width -gt 0 -and -not [double]::IsInfinity($c.BoundingRectangle.Width) -and (-not $PSBoundParameters.ContainsKey('Name') -or $c.Name -ceq $Name) -and (-not $Type -or $c.ControlType.ProgrammaticName -eq ('ControlType.'+$Type)) -and (-not $Class -or $c.ClassName -ceq $Class) -and (-not $Id -or $c.AutomationId -ceq $Id)
     })
@@ -141,9 +153,10 @@ if($Action -eq 'Navigate'){
     }
     if($Action -in @('Click','Type','RemoveTag')){Assert-Unobscured $element}
     if($Action -in @('Click','RemoveTag')){
-        if($element.Current.Name -match '^(发布|公開|Publish|公开发布|立即投稿|投稿|提交稿件)$'){throw 'Final publication requires a separate single-submit receipt'}
+        if($element.Current.Name -match '^(发布|公開|Publish|Post|Share|公开发布|立即投稿|投稿|提交稿件)$'){throw 'Final publication requires a separate single-submit receipt'}
         $pattern=$null
-        if($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::RadioButton -and $element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)){$pattern.Select()}
+        if($PhysicalClick){Click $element}
+        elseif($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::RadioButton -and $element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)){$pattern.Select()}
         elseif($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$pattern)){$pattern.Invoke()}
         else{Click $element}
         Start-Sleep -Milliseconds 450
@@ -153,6 +166,7 @@ if($Action -eq 'Navigate'){
         while(-not $element.Current.HasKeyboardFocus -and $focusTimer.Elapsed.TotalSeconds -lt 2){Start-Sleep -Milliseconds 100}
         if(-not $element.Current.HasKeyboardFocus){throw 'Editor focus not verified'}
         [System.Windows.Forms.SendKeys]::SendWait('^a')
+        Start-Sleep -Milliseconds 150
         [DingRpa]::TypeUnicodeText($handle,$Text)
         Start-Sleep -Milliseconds 250
         $back=Value $element

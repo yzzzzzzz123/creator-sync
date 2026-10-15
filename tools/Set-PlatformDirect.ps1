@@ -5,7 +5,13 @@ $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 $key='HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $prior=Get-ItemProperty -LiteralPath $key
-$domains=@('douyin.com','iesdouyin.com','amemv.com','douyinvod.com','douyinpic.com','douyincdn.com','douyinstatic.com','douyinvideo.net','bilibili.com','bilibili.cn','bilivideo.com','bilivideo.cn','hdslb.com','biliapi.com','biliapi.net','xiaohongshu.com','xhscdn.com','xhscdn.net')
+$domains=@('douyin.com','iesdouyin.com','amemv.com','douyinvod.com','douyinpic.com','douyincdn.com','douyinstatic.com','douyinvideo.net','v5-dy-ov-experiment.zjcdn.com','bilibili.com','bilibili.cn','bilivideo.com','bilivideo.cn','hdslb.com','biliapi.com','biliapi.net','xiaohongshu.com','xhscdn.com','xhscdn.net')
+$mediaManifest=Join-Path $projectRoot 'data\douyin\active-media.json'
+if(Test-Path -LiteralPath $mediaManifest){
+    $media=Get-Content -LiteralPath $mediaManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $uri=[Uri]$media.MediaUrl
+    if($media.SourceId -match '^\d{10,30}$' -and $uri.Scheme -eq 'https' -and $uri.Host -match '(^|\.)douyinvod\.com$|^v\d+-dy-[a-z0-9-]+\.zjcdn\.com$' -and $uri.Query -match ('(^|[?&])__vid='+[regex]::Escape([string]$media.SourceId)+'(&|$)') -and $domains -notcontains $uri.Host){$domains+=$uri.Host}
+}
 $overseas=@('youtube.com','googlevideo.com','ytimg.com','tiktok.com','tiktokcdn.com','tiktokv.com','tiktokcdn-us.com','ibytedtos.com','byteoversea.com','instagram.com','cdninstagram.com','fbcdn.net')
 $entries=@($prior.ProxyOverride -split ';' | Where-Object {$_})
 if($prior.ProxyEnable -ne 1 -or -not $prior.ProxyServer){throw 'An existing system proxy is required for overseas targets'}
