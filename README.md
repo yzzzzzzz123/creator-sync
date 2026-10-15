@@ -2,6 +2,22 @@
 
 本人小红书发布内容 → Bilibili / YouTube 的本机同步项目。用 Windows 原生 RPA 读取和操作已登录的 Chrome，账号登录与验证码由本人完成。
 
+## 启动入口
+
+以后直接对 Codex 说：**“调用 creator-sync 的 skill，同步最新 1 条到 B站和 YouTube。”** 入口是 [skill/SKILL.md](skill/SKILL.md)，主流程程序在 [skill/scripts/main.py](skill/scripts/main.py)。
+
+在项目根目录运行：
+
+```powershell
+& .\skill\Start.ps1                  # 启动本轮，接管 Chrome 并建立断点任务
+& .\skill\Start.ps1 -Action attach   # 接管现有 Chrome；关闭时自动启动三站
+& .\skill\Start.ps1 -Action status   # 查看发布状态
+& .\skill\Start.ps1 -Action sites    # 查看小红书、B站、YouTube 地址
+& .\skill\Start.ps1 -Action resume   # 继续同一轮
+```
+
+地址维护在 [skill/sites.json](skill/sites.json)，自动合并本机已绑定账号。没有 Chrome 时启动本人原有浏览器资料并打开三个站点；已有 Chrome 时复用窗口和登录，保留原标签页。主程序管理会话、去重与任务断点，网页 RPA 由调用该 Skill 的 Codex 继续执行，不会启动独立后台发文服务。
+
 已迁移小红书取材、YouTube 单条发布记录，并跑通 B 站单条投稿及已发布稿件的封面替换。定时扫描、自动生成任意视频英文文案和无人值守批量发布尚未交付；调度默认关闭。网页播放版本不能当作原始上传母版。
 
 ## 数据流程
@@ -11,6 +27,8 @@
 3. 分平台生成发布包。B 站沿用中文标题，使用音乐分区和相关音乐标签；封面参考本人小红书的白色手写曲名与浅蓝下划线，只放曲名。YouTube 忠实翻译为英文，保留现有英文设计封面风格和相关标签。
 4. 核对目标账号已有稿件，按「平台 + 账号 + 源笔记」及「平台 + 账号 + 视频哈希」去重。
 5. 发表前持久化一次提交声明；崩溃或结果未知先查原稿。审核中与公开可播放分别记录。
+
+后续所有封面文字统一居中，并检查 4:3、16:9 两种比例。
 
 ## 本地使用
 

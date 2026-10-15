@@ -1,0 +1,19 @@
+{
+  "xiaohongshu": {
+    "start_url": "https://www.xiaohongshu.com/explore",
+    "profile_template": "https://www.xiaohongshu.com/user/profile/{account_id}",
+    "tab_pattern": "小红书|xiaohongshu"
+  },
+  "bilibili": {
+    "start_url": "https://member.bilibili.com/platform/home",
+    "profile_template": "https://space.bilibili.com/{account_id}",
+    "upload_url": "https://member.bilibili.com/platform/upload",
+    "tab_pattern": "创作中心|哔哩哔哩|bilibili"
+  },
+  "youtube": {
+    "start_url": "https://studio.youtube.com/",
+    "profile_template": "https://www.youtube.com/channel/{account_id}",
+    "studio_template": "https://studio.youtube.com/channel/{account_id}/videos",
+    "tab_pattern": "YouTube"
+  }
+}
