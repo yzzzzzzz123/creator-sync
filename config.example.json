@@ -1,0 +1,11 @@
+{
+  "source": {"platform": "xiaohongshu", "account_id": "SET_LOCALLY"},
+  "targets": {
+    "bilibili": {"account_id": "SET_AFTER_LOGIN", "language": "zh-CN", "cover_style": "xiaohongshu-handwritten-song-title-only"},
+    "youtube": {"account_id": "SET_LOCALLY", "language": "en", "cover_style": "english-designed-thumbnail"}
+  },
+  "scheduler_enabled": false,
+  "backfill_enabled": false,
+  "max_posts_per_run": 1,
+  "transport": "windows-native-rpa"
+}
