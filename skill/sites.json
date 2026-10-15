@@ -1,19 +1,43 @@
 {
+  "douyin": {
+    "start_url": "https://www.douyin.com/user/self",
+    "creator_url": "https://creator.douyin.com/creator-micro/content/manage",
+    "read_only": true,
+    "network": "direct",
+    "tab_pattern": "抖音|douyin"
+  },
   "xiaohongshu": {
-    "start_url": "https://www.xiaohongshu.com/explore",
+    "start_url": "https://creator.xiaohongshu.com/creator/home",
+    "upload_url": "https://creator.xiaohongshu.com/publish/publish",
+    "network": "direct",
     "profile_template": "https://www.xiaohongshu.com/user/profile/{account_id}",
     "tab_pattern": "小红书|xiaohongshu"
   },
   "bilibili": {
+    "network": "direct",
     "start_url": "https://member.bilibili.com/platform/home",
     "profile_template": "https://space.bilibili.com/{account_id}",
     "upload_url": "https://member.bilibili.com/platform/upload",
     "tab_pattern": "创作中心|哔哩哔哩|bilibili"
   },
   "youtube": {
+    "network": "proxy",
     "start_url": "https://studio.youtube.com/",
     "profile_template": "https://www.youtube.com/channel/{account_id}",
     "studio_template": "https://studio.youtube.com/channel/{account_id}/videos",
     "tab_pattern": "YouTube"
+  },
+  "tiktok": {
+    "start_url": "https://www.tiktok.com/tiktokstudio/upload",
+    "upload_url": "https://www.tiktok.com/tiktokstudio/upload",
+    "profile_template": "https://www.tiktok.com/@{account_id}",
+    "network": "proxy",
+    "tab_pattern": "TikTok|tiktok"
+  },
+  "instagram": {
+    "start_url": "https://www.instagram.com/",
+    "profile_template": "https://www.instagram.com/{account_id}/",
+    "network": "proxy",
+    "tab_pattern": "Instagram|instagram"
   }
 }

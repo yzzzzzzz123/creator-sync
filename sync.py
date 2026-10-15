@@ -8,6 +8,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+TARGET_PLATFORMS = ('xiaohongshu', 'bilibili', 'youtube', 'tiktok', 'instagram')
+SOURCE_PLATFORMS = ('xiaohongshu', 'douyin')
+
+
+def source_key(platform, source_id):
+    if platform not in SOURCE_PLATFORMS or not source_id or ':' in source_id:
+        raise ValueError('Known source platform and unprefixed source ID required')
+    # Keep pre-existing Xiaohongshu receipts valid. All new Douyin IDs are namespaced.
+    return source_id if platform == 'xiaohongshu' else f'{platform}:{source_id}'
 
 
 def now():
@@ -43,6 +52,14 @@ class Ledger:
             UNIQUE(platform,account_id,video_sha256)
           );
         ''')
+        with self.transaction():
+            columns = {r['name'] for r in self.db.execute('PRAGMA table_info(sources)')}
+            if 'source_platform' not in columns:
+                self.db.execute("ALTER TABLE sources ADD COLUMN source_platform TEXT NOT NULL DEFAULT 'xiaohongshu'")
+            if 'source_id' not in columns:
+                self.db.execute('ALTER TABLE sources ADD COLUMN source_id TEXT')
+                self.db.execute('UPDATE sources SET source_id=note_id')
+            self.db.execute('CREATE UNIQUE INDEX IF NOT EXISTS source_identity ON sources(source_platform,source_id)')
 
     def close(self):
         self.db.close()
@@ -60,23 +77,29 @@ class Ledger:
 
     def observe(self, note, baseline=True):
         # Observation must never erase a locally downloaded video or completed delivery.
+        platform = note.get('source_platform', note.get('platform', 'xiaohongshu'))
+        source_id = note.get('source_id', note['note_id'])
+        key = source_key(platform, source_id)
         self.db.execute('''INSERT INTO sources
-          (note_id,title,url,cover_path,video_path,video_sha256,first_seen,baseline)
-          VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(note_id) DO UPDATE SET
+          (note_id,title,url,cover_path,video_path,video_sha256,first_seen,baseline,source_platform,source_id)
+          VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(note_id) DO UPDATE SET
           title=excluded.title,url=excluded.url,
           cover_path=COALESCE(excluded.cover_path,sources.cover_path),
           video_path=COALESCE(excluded.video_path,sources.video_path),
           video_sha256=COALESCE(excluded.video_sha256,sources.video_sha256)''',
-          (note['note_id'],note['title'],note['url'],note.get('cover_path'),
-           note.get('video_path'),note.get('video_sha256'),now(),int(baseline)))
+          (key,note['title'],note['url'],note.get('cover_path'),
+           note.get('video_path'),note.get('video_sha256'),now(),int(baseline),platform,source_id))
+        return key
 
     def prepare(self, note_id, platform, account_id, title):
-        if platform not in ('youtube','bilibili') or not account_id:
+        if platform not in TARGET_PLATFORMS or not account_id or account_id.startswith('SET_'):
             raise ValueError('Known platform and bound target account required')
         with self.transaction():
             source = self.db.execute('SELECT * FROM sources WHERE note_id=?',(note_id,)).fetchone()
             if not source or not source['video_sha256'] or not source['video_path']:
                 raise ValueError('Verified local video required')
+            if platform == source['source_platform']:
+                raise ValueError('The source platform is read-only; self-publication is forbidden')
             if sha256(source['video_path']) != source['video_sha256']:
                 raise ValueError('Source file changed')
             existing = self.db.execute('''SELECT * FROM deliveries WHERE platform=? AND

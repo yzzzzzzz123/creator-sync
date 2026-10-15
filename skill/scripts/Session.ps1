@@ -15,7 +15,8 @@ function Session-Windows {
         if(-not $process -or $process.ProcessName -ne 'chrome'){continue}
         $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$window.Handle)
         $nodes=Descendants $root
-        $tabs=@($nodes | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem} | ForEach-Object {$_.Current.Name})
+        $tabs=@($nodes | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem -and $_.Current.ClassName -eq 'Tab'} | ForEach-Object {$_.Current.Name})
+        if(-not $tabs.Count){continue}
         $private=($root.Current.Name -match '无痕|Incognito') -or @($nodes | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.Name -match '^(无痕模式|Incognito)'}).Count -gt 0
         $items+=[pscustomobject]@{WindowHandle=$window.Handle;ProcessId=$window.ProcessId;ProcessStartUtc=$process.StartTime.ToUniversalTime().ToString('o');Title=$window.Title;TabNames=$tabs;IsIncognito=[bool]$private;Foreground=([DingRpa]::GetForegroundWindow().ToInt64() -eq $window.Handle)}
     }
@@ -38,10 +39,10 @@ $dataDir=Join-Path $projectRoot 'data';New-Item -ItemType Directory -Force -Path
 $binding | ConvertTo-Json | Set-Content -LiteralPath "$dataDir\browser-binding.json" -Encoding UTF8
 $opened=@()
 if($SitesFile){
-    $sites=@(Get-Content -LiteralPath $SitesFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+    $sites=Get-Content -LiteralPath $SitesFile -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach($site in $sites){
         $uri=[Uri]$site.start_url
-        if($uri.Scheme -ne 'https' -or $uri.Host -notin @('www.xiaohongshu.com','member.bilibili.com','studio.youtube.com')){throw 'Unexpected startup site'}
+        if($uri.Scheme -ne 'https' -or $uri.Host -notin @('www.douyin.com','www.xiaohongshu.com','creator.xiaohongshu.com','member.bilibili.com','studio.youtube.com','www.tiktok.com','www.instagram.com')){throw 'Unexpected startup site'}
         if(@($bound.TabNames | Where-Object {$_ -match $site.tab_pattern}).Count){continue}
         if(Test-Path -LiteralPath "$dataDir\STOP"){throw 'Stopped before opening a platform tab'}
         if((Get-Process -Id $bound.ProcessId).StartTime.ToUniversalTime().ToString('o') -cne $bound.ProcessStartUtc){throw 'Chrome restarted'}
@@ -50,17 +51,19 @@ if($SitesFile){
         $wp=$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
         if([DingRpa]::GetForegroundWindow() -ne $handle){$wp.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Normal);Start-Sleep -Milliseconds 450;$wp.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Maximized);Start-Sleep -Milliseconds 400;$null=[DingRpa]::ActivateTarget($handle,$bound.ProcessId)}
         if([DingRpa]::GetForegroundWindow() -ne $handle){throw 'Chrome could not be activated'}
-        $before=@((Descendants $root) | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem}).Count
-        [System.Windows.Forms.SendKeys]::SendWait('^t')
+        $before=@((Descendants $root) | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem -and $_.Current.ClassName -eq 'Tab'}).Count
+        $newTab=@((Descendants $root) | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.ClassName -eq 'TabStripControlButton' -and $_.Current.Name -eq '新标签页'})
+        if($newTab.Count -ne 1){throw 'Chrome new-tab control is ambiguous'}
+        $newTab[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         $timer=[Diagnostics.Stopwatch]::StartNew();$address=@()
         do{
             $nodes=Descendants $root
-            $after=@($nodes | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem}).Count
+            $after=@($nodes | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem -and $_.Current.ClassName -eq 'Tab'}).Count
             $address=@($nodes | Where-Object {$_.Current.ClassName -eq 'OmniboxViewViews'})
             if($after -eq $before+1 -and $address.Count -eq 1 -and (Read-Value $address[0]) -in @('','about:blank','chrome://newtab/')){break}
             Start-Sleep -Milliseconds 150
         }while($timer.Elapsed.TotalSeconds -lt 5)
-        if($after -ne $before+1 -or $address.Count -ne 1 -or (Read-Value $address[0]) -notin @('','about:blank','chrome://newtab/')){throw 'New blank Chrome tab not verified'}
+        if($after -ne $before+1 -or $address.Count -ne 1 -or (Read-Value $address[0]) -notin @('','about:blank','chrome://newtab/')){throw ('New blank Chrome tab not verified: before='+$before+' after='+$after+' addressCount='+$address.Count)}
         $address[0].SetFocus()
         if(-not $address[0].Current.HasKeyboardFocus){throw 'Address field not focused'}
         $address[0].GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue([string]$site.start_url)

@@ -1,18 +1,42 @@
 {
   "source": {
-    "platform": "xiaohongshu",
-    "account_id": "SET_LOCALLY"
+    "platform": "douyin",
+    "account_id": "SET_AFTER_OWN_PROFILE_CHECK",
+    "read_only": true,
+    "network": "direct"
   },
   "targets": {
+    "xiaohongshu": {
+      "account_id": "SET_AFTER_LOGIN",
+      "language": "zh-CN",
+      "network": "direct",
+      "cover_style": "xiaohongshu-handwritten-song-title-only"
+    },
     "bilibili": {
       "account_id": "SET_AFTER_LOGIN",
       "language": "zh-CN",
+      "network": "direct",
       "cover_style": "xiaohongshu-handwritten-song-title-only"
     },
     "youtube": {
       "account_id": "SET_LOCALLY",
       "language": "en",
+      "network": "proxy",
       "cover_style": "english-designed-thumbnail"
+    },
+    "tiktok": {
+      "account_id": "SET_AFTER_LOGIN",
+      "language": "en",
+      "network": "proxy",
+      "cover_style": "english-centered-song-title",
+      "preferred_preview_ratio": "9:16"
+    },
+    "instagram": {
+      "account_id": "SET_AFTER_LOGIN",
+      "language": "en",
+      "network": "proxy",
+      "cover_style": "english-centered-song-title",
+      "preferred_preview_ratio": "9:16"
     }
   },
   "scheduler_enabled": false,
@@ -24,7 +48,9 @@
     "text_anchor": "center",
     "crop_ratios": [
       "4:3",
-      "16:9"
+      "16:9",
+      "9:16",
+      "1:1"
     ]
   }
 }

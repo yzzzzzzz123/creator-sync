@@ -16,10 +16,12 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TARGETS = ('bilibili', 'youtube')
+sys.path.insert(0, str(ROOT))
+from sync import TARGET_PLATFORMS
+TARGETS = TARGET_PLATFORMS
 FINAL = {'published', 'existing'}
 UNKNOWN = {'submitting', 'submitted', 'processing'}
-COVER_LAYOUT = {'text_align': 'center', 'text_anchor': 'center', 'crop_ratios': ['4:3', '16:9']}
+COVER_LAYOUT = {'text_align': 'center', 'text_anchor': 'center', 'crop_ratios': ['4:3', '16:9', '9:16', '1:1']}
 
 
 @contextmanager
@@ -74,15 +76,20 @@ def addresses(root):
     config = read_json(root / 'config.local.json', {})
     book = read_json(root / 'skill/sites.json')
     resolved = []
+    source_platform = config.get('source', {}).get('platform', 'xiaohongshu')
     for key, settings in book.items():
-        account = (config.get('source', {}) if key == 'xiaohongshu' else config.get('targets', {}).get(key, {}))
+        role = 'source' if key == source_platform else 'target'
+        if role == 'target' and key not in config.get('targets', {}):
+            continue
+        account = config.get('source', {}) if role == 'source' else config['targets'][key]
         account_id = account.get('account_id', '')
         if account_id.startswith('SET_'):
             account_id = ''
-        item = dict(settings, key=key)
+        item = dict(settings, key=key, role=role, account_bound=bool(account_id))
         if account_id:
-            item['profile_url'] = item.pop('profile_template').format(account_id=account_id)
-            if key == 'xiaohongshu':
+            if item.get('profile_template'):
+                item['profile_url'] = item.pop('profile_template').format(account_id=account_id)
+            if role == 'source' and key == 'xiaohongshu':
                 item['start_url'] = item['profile_url']
             elif key == 'youtube':
                 item['start_url'] = item.pop('studio_template').format(account_id=account_id)
@@ -107,27 +114,39 @@ def database(root):
 
 def selection(root, platforms, note_id=None):
     config = read_json(root / 'config.local.json', {})
+    source_config = config.get('source', {})
+    source_platform = source_config.get('platform', 'xiaohongshu')
+    if source_platform in platforms or any(p not in TARGETS for p in platforms):
+        raise ValueError('内容源只读，不能把抖音或当前源平台作为投稿目标。')
     sources, deliveries = database(root)
     missing_accounts = [p for p in platforms if not config.get('targets', {}).get(p, {}).get('account_id') or config['targets'][p]['account_id'].startswith('SET_')]
-    result = {'targets': [], 'needs_account_binding': missing_accounts}
+    source_bound = source_config.get('account_id', '')
+    source_bound = bool(source_bound and not source_bound.startswith('SET_'))
+    result = {'targets': [], 'needs_account_binding': missing_accounts,
+              'source_platform': source_platform, 'source_read_only': True,
+              'needs_source_binding': not source_bound}
     if note_id:
         source = next((s for s in sources if s['note_id'] == note_id), None)
         if not source:
-            raise ValueError('本地尚无这条源笔记；先通过小红书本人主页采集。')
+            raise ValueError('本地尚无这条源内容；先通过本人主页采集，并使用带平台前缀的源键。')
         result['source'] = source
+        result['source_platform'] = source.get('source_platform', 'xiaohongshu')
         for platform in platforms:
             account = config.get('targets', {}).get(platform, {}).get('account_id', '')
             matches = [d for d in deliveries if d['platform'] == platform and d['account_id'] == account and
                        (d['note_id'] == note_id or (source.get('video_sha256') and d['video_sha256'] == source['video_sha256']))]
             row = matches[0] if matches else None
             action = 'prepare'
-            if row and row['status'] in FINAL:
+            if platform in missing_accounts:
+                action = 'bind_account'
+            elif row and row['status'] in FINAL:
                 action = 'skip_published'
             elif row and (row['status'] in UNKNOWN or row.get('intent_at')):
                 action = 'reconcile_existing_submission'
             elif row and row['status'] != 'ready':
                 action = 'review_delivery'
             result['targets'].append({'platform': platform, 'account_id': account, 'action': action,
+                                      'delivery_note_id': row['note_id'] if row else note_id,
                                       'status': row['status'] if row else 'not_prepared',
                                       'target_url': row['target_url'] if row else None})
     else:
@@ -135,14 +154,16 @@ def selection(root, platforms, note_id=None):
         # Loaded profile order can contain pinned old notes. Never call the first saved card "latest".
         result['discovery_required'] = True
     actions = {d['action'] for d in result['targets']}
-    if missing_accounts:
-        stage = 'bind_accounts'
-    elif 'reconcile_existing_submission' in actions or 'review_delivery' in actions:
+    if 'reconcile_existing_submission' in actions or 'review_delivery' in actions:
         stage = 'reconcile'
+    elif not source_bound and not note_id:
+        stage = 'bind_source'
     elif result.get('discovery_required'):
         stage = 'discover'
     elif actions == {'skip_published'}:
         stage = 'complete'
+    elif missing_accounts and actions <= {'skip_published', 'bind_account'}:
+        stage = 'bind_accounts'
     else:
         stage = 'prepare'
     result['next_step'] = stage
@@ -160,7 +181,7 @@ def choose_window(windows, binding=None, requested=None):
         foreground = [w for w in normal if w.get('Foreground')]
         candidates = foreground or normal
     if len(candidates) > 1:
-        candidates = [w for w in candidates if any(any(word in title for word in ('小红书', '创作中心', 'YouTube')) for title in w.get('TabNames', []))] or candidates
+        candidates = [w for w in candidates if any(any(word in title for word in ('抖音', '小红书', '创作中心', 'YouTube', 'TikTok', 'Instagram')) for title in w.get('TabNames', []))] or candidates
     if len(candidates) != 1:
         raise ValueError('有多个 Chrome 窗口，请用 --window-handle 指定现场窗口；不会替换浏览器资料目录。')
     return candidates[0]
@@ -193,6 +214,24 @@ def chrome_executable():
         if path.is_file():
             return path
     raise ValueError('未找到 Chrome，请先安装 Chrome；不会改用其他浏览器或创建空白账号资料。')
+
+
+def ensure_routing(root):
+    command = ['powershell.exe', '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+               '-File', str(root / 'tools/Set-PlatformDirect.ps1')]
+    def run(arguments):
+        result = subprocess.run(command + arguments, capture_output=True, encoding='utf-8-sig',
+                                errors='replace', creationflags=subprocess.CREATE_NO_WINDOW, timeout=20, cwd=root)
+        if result.returncode:
+            raise ValueError(result.stderr.strip() or '分流检查失败，保留当前浏览器现场。')
+        return json.loads(result.stdout.strip())
+    checked = run(['-Check'])
+    if not checked['ConfigurationVerified']:
+        run([])
+        checked = run(['-Check'])
+    if not checked['ConfigurationVerified']:
+        raise ValueError('国内平台直连分流尚未生效。')
+    return checked
 
 
 def ensure_browser(root, requested=None, open_missing=False, discover=None, launch=None, attach=None):
@@ -230,7 +269,7 @@ def ensure_browser(root, requested=None, open_missing=False, discover=None, laun
                         *(['-SitesFile', site_file] if site_file else [])))
     site_file = None
     try:
-        # A freshly launched Chrome already received all three URLs; do not race it with extra tabs.
+        # A freshly launched Chrome already received all URLs; do not race it with extra tabs.
         if open_missing and not launched:
             directory = root / 'data/skill';directory.mkdir(parents=True, exist_ok=True)
             descriptor, name = tempfile.mkstemp(prefix='sites-', suffix='.json', dir=directory)
@@ -272,6 +311,9 @@ class Flow:
         state = read_json(self.path)
         if not state:
             raise ValueError('没有可恢复任务，请先 start。')
+        configured = read_json(self.root / 'config.local.json', {}).get('source', {}).get('platform', 'xiaohongshu')
+        if not state.get('note_id') and configured != state.get('source_platform', 'xiaohongshu'):
+            raise ValueError('主源已更换，不能把未选材的旧轮次当作新轮次恢复；保留旧状态并重新建档。')
         stop = self.root / 'data/STOP'
         if stop.exists() and not clear_stop:
             raise ValueError('STOP 已存在；需要 resume --clear-stop 明确恢复。')
@@ -301,7 +343,7 @@ def main(argv=None):
     parser.add_argument('--root', type=Path, default=ROOT, help=argparse.SUPPRESS)
     parser.add_argument('--json', action='store_true', help='输出完整 JSON')
     parser.add_argument('action', nargs='?', default='status', choices=['status', 'sites', 'plan', 'start', 'attach', 'resume', 'select', 'stop'])
-    parser.add_argument('--targets', nargs='+', choices=TARGETS, default=list(TARGETS))
+    parser.add_argument('--targets', nargs='+', choices=TARGETS)
     parser.add_argument('--note-id', help='明确指定源笔记；默认先现场发现最新视频')
     parser.add_argument('--window-handle', type=int)
     parser.add_argument('--dry-run', action='store_true', help='只生成计划，不操作浏览器或写任务')
@@ -310,6 +352,11 @@ def main(argv=None):
     if args.action == 'select' and not args.note_id:
         parser.error('select 需要 --note-id')
     root = args.root.resolve()
+    config = read_json(root / 'config.local.json', {})
+    if args.targets is None:
+        args.targets = [p for p in TARGETS if p in config.get('targets', {})]
+        if not args.targets:
+            args.targets = ['bilibili', 'youtube']
     flow = Flow(root)
     try:
         with (control_lock(root) if args.action in ('start','attach','resume','select') and not args.dry_run else nullcontext()):
@@ -319,7 +366,9 @@ def main(argv=None):
                 sources, deliveries = database(root)
                 result = {'source_count': len(sources), 'deliveries': [{k: d[k] for k in ('note_id','platform','status','target_url')} for d in deliveries],
                           'active_run': read_json(flow.path), 'stopped': (root/'data/STOP').exists(), 'scheduler_enabled': False,
-                          'cover_layout': COVER_LAYOUT}
+                          'cover_layout': COVER_LAYOUT, 'source': config.get('source', {}),
+                          'targets': list(config.get('targets', {})), 'sites': addresses(root),
+                          'platform_preflight': read_json(root/'data/platform-preflight.json', {})}
             elif args.action == 'plan' or args.dry_run:
                 result = selection(root, args.targets, args.note_id)
                 result['dry_run'] = True
@@ -328,6 +377,7 @@ def main(argv=None):
                 (root/'data/STOP').touch()
                 result = {'stopped': True, 'message': '后续 RPA 输入与提交停止；不关闭本人浏览器。'}
             elif args.action == 'attach':
+                ensure_routing(root)
                 result = ensure_browser(root, args.window_handle)
             elif args.action == 'select':
                 result = flow.select(args.note_id)
@@ -337,17 +387,20 @@ def main(argv=None):
                 if previous and previous['next_step'] != 'complete':
                     raise ValueError('已有未结束任务；请使用 resume。')
                 planned = selection(root, args.targets, args.note_id)
+                if planned['next_step'] != 'complete':
+                    ensure_routing(root)
                 browser = None if planned['next_step'] == 'complete' else ensure_browser(root, args.window_handle, open_missing=True)
                 result = flow.begin(args.targets, args.note_id, browser)
             else:
                 result = flow.resume(args.clear_stop)
                 if result['next_step'] != 'complete':
+                    ensure_routing(root)
                     result['browser'] = ensure_browser(root, args.window_handle, open_missing=True)
                     write_json(flow.path, result)
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
-            print('Creator Sync · 小红书 → B站 / YouTube')
+            print('Creator Sync · 抖音（本人运营，只读取材）→ 小红书 / B站 / YouTube / TikTok / Instagram')
             if args.action == 'sites':
                 for site in result['sites']:
                     print(f"{site['key']}: {site['start_url']}")
@@ -356,12 +409,14 @@ def main(argv=None):
                 for row in result['deliveries']:
                     print(f"{row['platform']} · {row['status']} · {row['target_url'] or '待核验'}")
                 print('自动调度：关闭；后续封面文字：居中')
+                for platform, check in result['platform_preflight'].get('platforms', {}).items():
+                    print(f"{platform} · {check['status']} · 完整发布实测：{'已完成' if check.get('published_test') else '未完成'}")
             elif args.action == 'attach':
-                print('已启动 Chrome 并打开三个站点。' if result['LaunchedChrome'] else '已接管当前正常 Chrome 窗口，保留原登录会话。')
+                print('已启动 Chrome 并打开配置站点。' if result['LaunchedChrome'] else '已接管当前正常 Chrome 窗口，保留原登录会话。')
             elif args.action == 'stop':
                 print(result['message'])
             else:
-                labels = {'discover':'现场读取本人小红书，确认最新视频（排除置顶旧视频）', 'prepare':'准备素材、居中封面和分平台发布包',
+                labels = {'discover':'现场读取本人源主页，确认最新视频（排除置顶旧视频）', 'bind_source':'核对本人抖音账号并绑定只读内容源', 'prepare':'准备素材、居中封面和分平台发布包',
                           'reconcile':'核对既有提交结果，禁止重复投稿', 'bind_accounts':'核对并补齐目标账号绑定', 'complete':'所选内容已完成，跳过重复发布'}
                 print('下一步：' + labels[result['next_step']])
                 print('网页操作由调用 skill/SKILL.md 的 Codex 继续执行；启动程序不独立后台发文。')

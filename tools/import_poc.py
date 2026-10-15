@@ -61,7 +61,7 @@ def main():
         profile_path=urlsplit(notes[0]['note_url']).path.split('/')
         if profile_path[1:3] != ['user','profile']:
             raise ValueError('Expected own-profile note URL')
-        config['source']['account_id']=profile_path[3]
+        config['targets']['xiaohongshu']['account_id']=profile_path[3]
         config['targets']['youtube']['account_id']=state['ChannelId']
         local=ROOT/'config.local.json'
         if not local.exists():

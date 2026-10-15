@@ -176,13 +176,19 @@ public static class DingRpa {
             throw new InvalidOperationException("Could not send menu-close key");
     }
     public static void ClickPoint(IntPtr hwnd,int x,int y) {
+        MouseClick(hwnd,x,y,false);
+    }
+    public static void RightClickPoint(IntPtr hwnd,int x,int y) {
+        MouseClick(hwnd,x,y,true);
+    }
+    static void MouseClick(IntPtr hwnd,int x,int y,bool right) {
         if(GetForegroundWindow()!=hwnd) throw new InvalidOperationException("Target window lost focus");
         if((GetAsyncKeyState(0x1b)&0x8000)!=0) throw new InvalidOperationException("User pressed Escape");
         var point=new Point{X=x,Y=y}; var hit=WindowFromPoint(point);
         if(hit!=hwnd && GetAncestor(hit,2)!=hwnd) throw new InvalidOperationException("Click point is covered by another window");
         if(!SetCursorPos(x,y)) throw new InvalidOperationException("Could not move pointer");
-        var down=new Input(); down.Type=0; down.Data.Mouse.Flags=2;
-        var up=new Input(); up.Type=0; up.Data.Mouse.Flags=4;
+        var down=new Input(); down.Type=0; down.Data.Mouse.Flags=right?8u:2u;
+        var up=new Input(); up.Type=0; up.Data.Mouse.Flags=right?16u:4u;
         var inputs=new Input[]{down,up};
         if(SendInput(2,inputs,Marshal.SizeOf(typeof(Input)))!=2) {
             SendInput(1,new Input[]{up},Marshal.SizeOf(typeof(Input)));

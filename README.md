@@ -1,34 +1,35 @@
 # Creator Sync
 
-本人小红书发布内容 → Bilibili / YouTube 的本机同步项目。用 Windows 原生 RPA 读取和操作已登录的 Chrome，账号登录与验证码由本人完成。
+本人抖音发布内容 → 小红书 / Bilibili / YouTube / TikTok / Instagram 的本机同步项目。抖音由本人运营，程序只读取已发布作品。用 Windows 原生 RPA 操作已登录的 Chrome，账号登录与验证码由本人完成。
 
 ## 启动入口
 
-以后直接对 Codex 说：**“调用 creator-sync 的 skill，同步最新 1 条到 B站和 YouTube。”** 入口是 [skill/SKILL.md](skill/SKILL.md)，主流程程序在 [skill/scripts/main.py](skill/scripts/main.py)。
+以后直接对 Codex 说：**“调用 creator-sync 的 skill，把抖音最新 1 条同步到其他平台。”** 入口是 [skill/SKILL.md](skill/SKILL.md)，主流程程序在 [skill/scripts/main.py](skill/scripts/main.py)。
 
 在项目根目录运行：
 
 ```powershell
 & .\skill\Start.ps1                  # 启动本轮，接管 Chrome 并建立断点任务
-& .\skill\Start.ps1 -Action attach   # 接管现有 Chrome；关闭时自动启动三站
+& .\skill\Start.ps1 -Action attach   # 接管现有 Chrome；关闭时自动启动六站
 & .\skill\Start.ps1 -Action status   # 查看发布状态
-& .\skill\Start.ps1 -Action sites    # 查看小红书、B站、YouTube 地址
+& .\skill\Start.ps1 -Action sites    # 查看六站地址、账号角色和分流
 & .\skill\Start.ps1 -Action resume   # 继续同一轮
+& .\skill\Start.ps1 -Targets @('tiktok','instagram') # 只同步指定目标
 ```
 
-地址维护在 [skill/sites.json](skill/sites.json)，自动合并本机已绑定账号。没有 Chrome 时启动本人原有浏览器资料并打开三个站点；已有 Chrome 时复用窗口和登录，保留原标签页。主程序管理会话、去重与任务断点，网页 RPA 由调用该 Skill 的 Codex 继续执行，不会启动独立后台发文服务。
+地址、源/目标角色和网络规则维护在 [skill/sites.json](skill/sites.json)，自动合并本机账号。没有 Chrome 时使用本人原有资料打开六站；已有 Chrome 时复用登录、补齐缺少的标签页。主程序管理会话、去重与断点，网页 RPA 由调用 Skill 的 Codex 继续执行。
 
-已迁移小红书取材、YouTube 单条发布记录，并跑通 B 站单条投稿及已发布稿件的封面替换。定时扫描、自动生成任意视频英文文案和无人值守批量发布尚未交付；调度默认关闭。网页播放版本不能当作原始上传母版。
+已保留原小红书取材及 YouTube/B站真实发布回执。抖音本人作品列表读取已通过；TikTok 和 Instagram 已登录并到达上传入口，尚无这两个平台的真实发布回执。定时扫描、抖音完整视频下载和新增平台完整上传/封面/公开验证仍需实际视频测试；调度默认关闭。网页播放版本不能当作原始上传母版。
 
 ## 数据流程
 
-1. 在本人小红书主页取标题、笔记 ID、封面；通过浏览器另存页面离线解析本人视频已有播放链接，再用浏览器下载。
-2. 以笔记 ID 建素材库，记录视频 SHA-256。第一次采集建立历史基线，不自动补发全部旧内容。
-3. 分平台生成发布包。B 站沿用中文标题，使用音乐分区和相关音乐标签；封面参考本人小红书的白色手写曲名与浅蓝下划线，只放曲名。YouTube 忠实翻译为英文，保留现有英文设计封面风格和相关标签。
-4. 核对目标账号已有稿件，按「平台 + 账号 + 源笔记」及「平台 + 账号 + 视频哈希」去重。
+1. 在抖音本人主页核对账号，只读标题、作品 ID、发布时间和素材；用原生 UIA 快照及浏览器另存文件，不调用私有接口。`tools/import_douyin_snapshot.py` 可导入已加载标题链接，元数据入库不等于下载成功。
+2. 抖音内部源键使用 `douyin:<作品ID>`，小红书历史源键不变。第一次采集建立基线，不自动补发旧内容；素材齐全且核验后才准备投稿。
+3. 五个目标分别生成发布包。国内使用中文；YouTube 保留英文设计风格，TikTok/Instagram 默认英文适配。标题忠实、标签相关；B站/小红书封面只放曲名，参考已接受的手写风格。
+4. 核对目标账号已有稿件，按「目标平台 + 账号 + 源键」和「目标平台 + 账号 + 视频哈希」去重。跨平台重编码导致哈希不同时，仍须比对内容，不自动判断是新作品。
 5. 发表前持久化一次提交声明；崩溃或结果未知先查原稿。审核中与公开可播放分别记录。
 
-后续所有封面文字统一居中，并检查 4:3、16:9 两种比例。
+后续所有封面文字居中，按平台检查 4:3、16:9、9:16、1:1 的实际裁切。横向演奏不强裁双手与琴键。
 
 ## 本地使用
 
@@ -54,6 +55,6 @@ RPA 需先运行 `rpa/Bind-Browser.ps1` 绑定当次 Chrome 窗口；旧 PID 或
 
 ## 自动化边界
 
-一次最多发 1 条，本轮只测试 B 站；YouTube 已成功的视频只迁移回执。尚未启用历史补发、轮询服务、计划任务或开机启动。后续自动同步应只处理基线之后新增且素材齐全的本人视频，两个平台独立重试、独立核验；封面/账号/标题不确定时保留现场等待处理。
+一轮最多选择 1 条源视频，五个目标独立准备、去重和核验。未知提交先查原稿，禁止重放。已发布回执保留；尚未启用历史补发、轮询、计划任务或开机启动。只处理范围明确且素材齐全的本人视频；封面、账号或标题不确定时保留现场。
 
-按用户要求，小红书和 B 站相关域名加入系统代理绕过列表，YouTube 保留已有代理。`tools/Set-PlatformDirect.ps1` 保存本机修改前备份，不修改 Clash 全局出口。
+抖音、小红书、B站直连；YouTube、TikTok、Instagram 使用既有代理。启动会检查并补齐国内域名绕过列表，保留代理出口。`tools/Set-PlatformDirect.ps1 -Check` 可只读检查；配置正确和页面可访问分别验证。

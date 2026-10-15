@@ -1,4 +1,5 @@
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
 from sync import Ledger, sha256
@@ -69,6 +70,42 @@ class LedgerTest(unittest.TestCase):
                 second.claim_submit('a','youtube','owner')
         finally:
             second.close()
+
+    def test_platform_ids_are_isolated_and_cross_source_hash_still_deduplicates(self):
+        self.prepare()
+        key=self.ledger.observe(dict(self.note,source_platform='douyin'))
+        self.assertEqual(key,'douyin:a')
+        self.assertEqual(self.ledger.status()['source_count'],2)
+        self.assertEqual(self.ledger.prepare(key,'youtube','owner','Title')['note_id'],'a')
+
+    def test_five_destinations_are_independent_and_douyin_cannot_be_target(self):
+        key=self.ledger.observe(dict(self.note,source_platform='douyin'))
+        for platform in ('xiaohongshu','bilibili','youtube','tiktok','instagram'):
+            self.assertEqual(self.ledger.prepare(key,platform,'owner','Title')['status'],'ready')
+        with self.assertRaises(ValueError):self.ledger.prepare(key,'douyin','owner','Title')
+        with self.assertRaises(ValueError):self.ledger.prepare('a','xiaohongshu','owner','Title')
+        with self.assertRaises(ValueError):self.ledger.prepare(key,'tiktok','SET_AFTER_LOGIN','Title')
+
+    def test_migration_preserves_legacy_unknown_delivery_and_ids(self):
+        path=self.root/'legacy.sqlite3'
+        db=sqlite3.connect(path)
+        db.executescript('''CREATE TABLE sources(note_id TEXT PRIMARY KEY,title TEXT NOT NULL,url TEXT NOT NULL,
+          cover_path TEXT,video_path TEXT,video_sha256 TEXT,first_seen TEXT NOT NULL,baseline INTEGER NOT NULL DEFAULT 1);
+          CREATE TABLE deliveries(note_id TEXT NOT NULL REFERENCES sources(note_id),platform TEXT NOT NULL,
+          account_id TEXT NOT NULL,status TEXT NOT NULL,title TEXT NOT NULL,video_sha256 TEXT NOT NULL,
+          target_id TEXT,target_url TEXT,intent_at TEXT,updated_at TEXT NOT NULL,evidence TEXT NOT NULL DEFAULT '{}',
+          PRIMARY KEY(note_id,platform,account_id),UNIQUE(platform,account_id,video_sha256));
+          INSERT INTO sources(note_id,title,url,first_seen) VALUES('old','Title','https://example.test','t');
+          INSERT INTO deliveries(note_id,platform,account_id,status,title,video_sha256,intent_at,updated_at)
+          VALUES('old','youtube','owner','submitting','Title','h','original-intent','t');''')
+        db.close()
+        migrated=Ledger(path)
+        try:
+            row=migrated.db.execute('SELECT * FROM sources').fetchone()
+            self.assertEqual((row['note_id'],row['source_platform'],row['source_id']),('old','xiaohongshu','old'))
+            self.assertEqual(migrated.get('old','youtube','owner')['intent_at'],'original-intent')
+            with self.assertRaises(ValueError):migrated.claim_submit('old','youtube','owner')
+        finally:migrated.close()
 
 
 if __name__ == '__main__':

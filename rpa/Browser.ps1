@@ -1,4 +1,4 @@
-﻿param([ValidateSet('Inspect','Navigate','SelectTab','ChromeClick','Click','RemoveTag','Type','Hover','Keys','Scroll')][string]$Action='Inspect',[string]$Stage='inspect',[string]$Name,[string]$Type,[string]$Class,[string]$Id,[string]$Text,[string]$Url,[string]$Keys,[int]$Occurrence=-1,[int]$Notches=-3,[long]$WindowHandle=0)
+﻿param([ValidateSet('Inspect','Navigate','SelectTab','ChromeClick','Click','RemoveTag','Type','Hover','Context','Keys','Scroll')][string]$Action='Inspect',[string]$Stage='inspect',[string]$Name,[string]$Type,[string]$Class,[string]$Id,[string]$Text,[string]$Url,[string]$Keys,[int]$Occurrence=-1,[int]$Notches=-3,[long]$WindowHandle=0)
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 if(Test-Path -LiteralPath "$projectRoot\data\STOP"){throw 'User STOP file exists'}
@@ -56,9 +56,17 @@ $current=Value $address[0]
 if(-not $current){$current='about:blank'}elseif($current -notmatch '^https?://|^about:|^chrome:'){$current='https://'+$current}
 $uri=[Uri]$current
 $canonicalHost=$uri.Host
-if($canonicalHost -in @('bilibili.com','youtube.com','xiaohongshu.com')){$canonicalHost='www.'+$canonicalHost}
-$allowed=@('www.xiaohongshu.com','xiaohongshu.com','www.youtube.com','youtube.com','studio.youtube.com','accounts.google.com','www.bilibili.com','bilibili.com','member.bilibili.com','space.bilibili.com','passport.bilibili.com','passport.bilibili.cn')
+if($canonicalHost -in @('bilibili.com','youtube.com','xiaohongshu.com','douyin.com','tiktok.com','instagram.com')){$canonicalHost='www.'+$canonicalHost}
+$allowed=@('www.douyin.com','douyin.com','creator.douyin.com','www.xiaohongshu.com','xiaohongshu.com','creator.xiaohongshu.com','www.youtube.com','youtube.com','studio.youtube.com','accounts.google.com','www.bilibili.com','bilibili.com','member.bilibili.com','space.bilibili.com','passport.bilibili.com','passport.bilibili.cn','www.tiktok.com','tiktok.com','www.instagram.com','instagram.com')
 if($uri.Host -notin $allowed -and -not ($Action -in @('Navigate','Inspect','SelectTab') -and $current -in @('about:blank','chrome://newtab/'))){throw ('Unexpected host '+$uri.Host)}
+if($canonicalHost -in @('www.douyin.com','creator.douyin.com')){
+    if($Action -eq 'Type' -and $Name -notin @('搜索作品','搜索你发布的作品','搜索你感兴趣的内容')){throw 'Douyin is a read-only content source; only search input is allowed'}
+    if($Action -eq 'Click' -and $Name -match '^(作品发布|发布作品|编辑作品|设置权限|删除作品|取消置顶|置顶|发送|点赞|收藏|关注|取消关注)$'){throw 'Douyin operations are managed by the user; write action refused'}
+    if($Action -eq 'Keys' -and $Keys -eq '{ENTER}'){
+        $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+        if($focused.Current.Name -notin @('搜索作品','搜索你发布的作品','搜索你感兴趣的内容')){throw 'Douyin Enter is limited to an identified search field'}
+    }
+}
 if($Action -eq 'Navigate'){
     if(([Uri]$Url).Host -notin $allowed){throw 'Navigation host not allowed'}
     $address[0].SetFocus();Start-Sleep -Milliseconds 100
@@ -79,7 +87,7 @@ if($Action -eq 'Navigate'){
     if((Value $address[0]) -cne $Url){throw 'Address readback mismatch'}
     [DingRpa]::PressEnter($handle)
  }elseif($Action -eq 'ChromeClick'){
-    if($Name -notmatch '^(扩展程序|Proxy SwitchyOmega \(V3\)(\r?\n.*)?)$'){throw 'Chrome control not allowed'}
+    if($Name -notmatch '^(扩展程序|Proxy SwitchyOmega \(V3\)(\r?\n.*)?|有 [0-9]+ 项下载正在进行|下载)$'){throw 'Chrome control not allowed'}
     $targets=@($all | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.Name -ceq $Name -and (Visible $_)})
     if($targets.Count -ne 1){throw 'Chrome control ambiguous'}
     Click $targets[0]
@@ -153,6 +161,11 @@ if($Action -eq 'Navigate'){
             if($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$tp)){$back=$tp.DocumentRange.GetText(-1).TrimEnd([char]13,[char]10)}
         }
         if($back -cne $Text){throw 'Editor readback mismatch'}
+    }elseif($Action -eq 'Context'){
+        Assert-Unobscured $element
+        $b=$element.Current.BoundingRectangle
+        [DingRpa]::RightClickPoint($handle,[int](($b.Left+$b.Right)/2),[int](($b.Top+$b.Bottom)/2))
+        Start-Sleep -Milliseconds 350
     }elseif($Action -eq 'Hover'){
         Assert-Unobscured $element
         $b=$element.Current.BoundingRectangle
